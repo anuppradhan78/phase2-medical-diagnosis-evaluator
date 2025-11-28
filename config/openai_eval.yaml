@@ -1,0 +1,33 @@
+# OpenAI GPT-4o Evaluation Configuration
+
+model:
+  provider: openai
+  model_name: gpt-4o
+  temperature: 0.7
+  max_tokens: 2000
+  api_key_env: OPENAI_API_KEY
+
+# Judge model for safety/quality evaluation
+judge_model: claude-3-5-sonnet-20241022
+judge_provider: anthropic
+
+# Dataset configuration
+golden_dataset_path: data/golden_dataset.json
+
+# Output configuration
+output_dir: ./eval_results/openai_gpt4o
+
+# LangSmith configuration
+langsmith_project: medical-diagnosis-eval-openai
+langsmith_api_key_env: LANGSMITH_API_KEY
+
+# Metric thresholds
+min_accuracy: 0.75
+min_faithfulness: 0.80
+min_safety_score: 4.0
+max_cost_per_query: 0.10
+max_p95_latency: 3000.0
+
+# Evaluation options
+subset_size: null  # null = evaluate all cases
+verbose: false
