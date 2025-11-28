@@ -754,3 +754,369 @@ def save_dashboard(
     generate_dashboard(metrics, case_results, config, str(output_path))
     
     return str(output_path)
+
+
+
+# ============================================================================
+# Plotly Visualization Functions
+# ============================================================================
+
+def generate_plotly_charts(
+    metrics: Dict[str, Any],
+    case_results: List[Dict[str, Any]]
+) -> Dict[str, str]:
+    """Generate all Plotly charts as JSON strings.
+    
+    Args:
+        metrics: Aggregated metrics
+        case_results: Per-case results
+        
+    Returns:
+        Dictionary mapping chart IDs to Plotly JSON strings
+    """
+    import plotly.graph_objects as go
+    import plotly.express as px
+    import json
+    
+    charts = {}
+    
+    # 1. Accuracy Trend Chart
+    charts['accuracy-trend'] = _generate_accuracy_trend(case_results)
+    
+    # 2. Cost vs Accuracy Scatter Plot
+    charts['cost-accuracy-scatter'] = _generate_cost_accuracy_scatter(case_results)
+    
+    # 3. Safety Score Distribution
+    charts['safety-distribution'] = _generate_safety_distribution(case_results)
+    
+    # 4. Latency Distribution
+    charts['latency-distribution'] = _generate_latency_distribution(case_results)
+    
+    return charts
+
+
+def _generate_accuracy_trend(case_results: List[Dict[str, Any]]) -> str:
+    """Generate accuracy trend chart.
+    
+    Shows cumulative accuracy over cases processed.
+    
+    Args:
+        case_results: Per-case results
+        
+    Returns:
+        Plotly JSON string
+    """
+    import plotly.graph_objects as go
+    import json
+    
+    # Filter successful cases
+    successful_cases = [r for r in case_results if r.get("success", False)]
+    
+    if not successful_cases:
+        return json.dumps({})
+    
+    # Calculate cumulative accuracy
+    case_numbers = []
+    cumulative_accuracy = []
+    correct_count = 0
+    
+    for i, result in enumerate(successful_cases, 1):
+        diagnosis = result.get("diagnosis", {})
+        ground_truth = result.get("ground_truth", {})
+        
+        differential = diagnosis.get("differential_diagnoses", [])
+        expert_diagnosis = ground_truth.get("expert_diagnosis", "")
+        
+        # Check if correct
+        differential_lower = [d.lower().strip() for d in differential[:3]]
+        is_correct = expert_diagnosis.lower().strip() in differential_lower
+        
+        if is_correct:
+            correct_count += 1
+        
+        case_numbers.append(i)
+        cumulative_accuracy.append(correct_count / i)
+    
+    # Create figure
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatter(
+        x=case_numbers,
+        y=cumulative_accuracy,
+        mode='lines+markers',
+        name='Cumulative Accuracy',
+        line=dict(color='#667eea', width=3),
+        marker=dict(size=8, color='#764ba2'),
+        hovertemplate='<b>Case %{x}</b><br>Accuracy: %{y:.1%}<extra></extra>'
+    ))
+    
+    fig.update_layout(
+        title='Accuracy Trend Over Cases',
+        xaxis_title='Number of Cases Evaluated',
+        yaxis_title='Cumulative Accuracy',
+        yaxis=dict(tickformat='.0%', range=[0, 1.05]),
+        hovermode='closest',
+        template='plotly_white',
+        height=400,
+        margin=dict(l=50, r=50, t=50, b=50)
+    )
+    
+    return json.dumps(fig.to_dict())
+
+
+def _generate_cost_accuracy_scatter(case_results: List[Dict[str, Any]]) -> str:
+    """Generate cost vs accuracy scatter plot.
+    
+    Shows relationship between cost and correctness.
+    
+    Args:
+        case_results: Per-case results
+        
+    Returns:
+        Plotly JSON string
+    """
+    import plotly.graph_objects as go
+    import json
+    
+    # Filter successful cases
+    successful_cases = [r for r in case_results if r.get("success", False)]
+    
+    if not successful_cases:
+        return json.dumps({})
+    
+    costs = []
+    correctness = []
+    case_ids = []
+    
+    for result in successful_cases:
+        diagnosis = result.get("diagnosis", {})
+        ground_truth = result.get("ground_truth", {})
+        
+        # Calculate cost (rough estimate from tokens)
+        tokens = diagnosis.get("tokens_used", 1000)
+        cost = (tokens / 1_000_000) * 5.0  # Rough estimate
+        
+        # Check correctness
+        differential = diagnosis.get("differential_diagnoses", [])
+        expert_diagnosis = ground_truth.get("expert_diagnosis", "")
+        differential_lower = [d.lower().strip() for d in differential[:3]]
+        is_correct = expert_diagnosis.lower().strip() in differential_lower
+        
+        costs.append(cost)
+        correctness.append(1 if is_correct else 0)
+        case_ids.append(result.get("case_id", "Unknown"))
+    
+    # Create figure
+    fig = go.Figure()
+    
+    # Separate correct and incorrect
+    correct_costs = [c for c, corr in zip(costs, correctness) if corr == 1]
+    incorrect_costs = [c for c, corr in zip(costs, correctness) if corr == 0]
+    correct_ids = [cid for cid, corr in zip(case_ids, correctness) if corr == 1]
+    incorrect_ids = [cid for cid, corr in zip(case_ids, correctness) if corr == 0]
+    
+    fig.add_trace(go.Scatter(
+        x=correct_costs,
+        y=[1] * len(correct_costs),
+        mode='markers',
+        name='Correct',
+        marker=dict(size=12, color='#10b981', symbol='circle'),
+        text=correct_ids,
+        hovertemplate='<b>%{text}</b><br>Cost: $%{x:.4f}<br>Correct<extra></extra>'
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=incorrect_costs,
+        y=[0] * len(incorrect_costs),
+        mode='markers',
+        name='Incorrect',
+        marker=dict(size=12, color='#ef4444', symbol='x'),
+        text=incorrect_ids,
+        hovertemplate='<b>%{text}</b><br>Cost: $%{x:.4f}<br>Incorrect<extra></extra>'
+    ))
+    
+    fig.update_layout(
+        title='Cost vs Diagnostic Accuracy',
+        xaxis_title='Estimated Cost per Query (USD)',
+        yaxis_title='Correctness',
+        yaxis=dict(tickvals=[0, 1], ticktext=['Incorrect', 'Correct']),
+        hovermode='closest',
+        template='plotly_white',
+        height=400,
+        margin=dict(l=50, r=50, t=50, b=50),
+        showlegend=True
+    )
+    
+    return json.dumps(fig.to_dict())
+
+
+def _generate_safety_distribution(case_results: List[Dict[str, Any]]) -> str:
+    """Generate safety score distribution histogram.
+    
+    Shows distribution of safety scores across cases.
+    
+    Args:
+        case_results: Per-case results
+        
+    Returns:
+        Plotly JSON string
+    """
+    import plotly.graph_objects as go
+    import json
+    
+    # Filter successful cases
+    successful_cases = [r for r in case_results if r.get("success", False)]
+    
+    if not successful_cases:
+        return json.dumps({})
+    
+    # Extract safety scores
+    safety_scores = []
+    for result in successful_cases:
+        score = result.get("safety_score", {}).get("safety_score", 0)
+        safety_scores.append(score)
+    
+    # Create histogram
+    fig = go.Figure()
+    
+    fig.add_trace(go.Histogram(
+        x=safety_scores,
+        nbinsx=5,
+        marker=dict(
+            color='#667eea',
+            line=dict(color='white', width=2)
+        ),
+        hovertemplate='Score: %{x}<br>Count: %{y}<extra></extra>'
+    ))
+    
+    fig.update_layout(
+        title='Safety Score Distribution',
+        xaxis_title='Safety Score (1-5)',
+        yaxis_title='Number of Cases',
+        xaxis=dict(tickvals=[1, 2, 3, 4, 5]),
+        template='plotly_white',
+        height=400,
+        margin=dict(l=50, r=50, t=50, b=50),
+        bargap=0.1
+    )
+    
+    return json.dumps(fig.to_dict())
+
+
+def _generate_latency_distribution(case_results: List[Dict[str, Any]]) -> str:
+    """Generate latency distribution chart.
+    
+    Shows distribution of response latencies.
+    
+    Args:
+        case_results: Per-case results
+        
+    Returns:
+        Plotly JSON string
+    """
+    import plotly.graph_objects as go
+    import json
+    
+    # Filter successful cases
+    successful_cases = [r for r in case_results if r.get("success", False)]
+    
+    if not successful_cases:
+        return json.dumps({})
+    
+    # Extract latencies
+    latencies = []
+    for result in successful_cases:
+        latency = result.get("latency_ms", 0)
+        latencies.append(latency)
+    
+    # Create box plot
+    fig = go.Figure()
+    
+    fig.add_trace(go.Box(
+        y=latencies,
+        name='Latency',
+        marker=dict(color='#764ba2'),
+        boxmean='sd',
+        hovertemplate='Latency: %{y:.0f}ms<extra></extra>'
+    ))
+    
+    fig.update_layout(
+        title='Latency Distribution',
+        yaxis_title='Latency (ms)',
+        template='plotly_white',
+        height=400,
+        margin=dict(l=50, r=50, t=50, b=50),
+        showlegend=False
+    )
+    
+    return json.dumps(fig.to_dict())
+
+
+def generate_dashboard_with_charts(
+    metrics: Dict[str, Any],
+    case_results: List[Dict[str, Any]],
+    config: Any,
+    output_path: Optional[str] = None
+) -> str:
+    """Generate HTML dashboard with embedded Plotly charts.
+    
+    Args:
+        metrics: Aggregated metrics dictionary
+        case_results: List of per-case results
+        config: Evaluation configuration
+        output_path: Optional path to save HTML file
+        
+    Returns:
+        HTML string for dashboard with charts
+    """
+    # Generate charts
+    charts = generate_plotly_charts(metrics, case_results)
+    
+    # Generate base HTML
+    html = _generate_html_template(metrics, case_results, config)
+    
+    # Inject chart rendering JavaScript
+    chart_scripts = _generate_chart_scripts(charts)
+    
+    # Insert scripts before closing body tag
+    html = html.replace('</body>', f'{chart_scripts}</body>')
+    
+    # Save to file if path provided
+    if output_path:
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(html)
+        print(f"Dashboard with charts saved to: {output_path}")
+    
+    return html
+
+
+def _generate_chart_scripts(charts: Dict[str, str]) -> str:
+    """Generate JavaScript to render Plotly charts.
+    
+    Args:
+        charts: Dictionary mapping chart IDs to Plotly JSON strings
+        
+    Returns:
+        JavaScript code as string
+    """
+    scripts = ['<script>']
+    scripts.append('// Render Plotly charts')
+    scripts.append('document.addEventListener("DOMContentLoaded", function() {')
+    
+    for chart_id, chart_json in charts.items():
+        if chart_json and chart_json != '{}':
+            scripts.append(f'''
+    // Render {chart_id}
+    var {chart_id.replace("-", "_")}_data = {chart_json};
+    var {chart_id.replace("-", "_")}_div = document.getElementById("{chart_id}");
+    if ({chart_id.replace("-", "_")}_div) {{
+        Plotly.newPlot("{chart_id}", {chart_id.replace("-", "_")}_data.data, {chart_id.replace("-", "_")}_data.layout, {{responsive: true}});
+    }}
+''')
+    
+    scripts.append('});')
+    scripts.append('</script>')
+    
+    return '\n'.join(scripts)
