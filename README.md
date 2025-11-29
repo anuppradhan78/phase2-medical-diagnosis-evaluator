@@ -32,6 +32,9 @@ phase2-medical-diagnosis-evaluator/
 │   ├── METRICS.md
 │   └── GOLDEN_DATASET.md
 ├── venv/                   # Virtual environment (not in git)
+├── demo_short.py           # Quick demo script (~2-3 min)
+├── demo_long.py            # Comprehensive demo (~10-15 min)
+├── DEMO.md                 # Demo guide and documentation
 ├── requirements.txt        # Python dependencies
 ├── .env.example           # Environment variables template
 ├── .gitignore             # Git ignore rules
@@ -76,6 +79,20 @@ python -c "import langsmith; import ragas; import openai; print('Setup successfu
 ```
 
 ## Quick Start
+
+### Try the Interactive Demo
+
+**Perfect for first-time users and demonstrations:**
+
+```bash
+# Quick demo (~2-3 minutes) - Great for interviews
+python demo_short.py
+
+# Comprehensive demo (~10-15 minutes) - Full feature showcase
+python demo_long.py
+```
+
+**See [DEMO.md](DEMO.md) for detailed demo guide.**
 
 ### Run Your First Evaluation
 

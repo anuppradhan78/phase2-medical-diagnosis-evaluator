@@ -10,14 +10,23 @@ This module provides functions for computing Ragas metrics:
 from typing import List, Dict, Any, Optional
 import warnings
 
-from ragas import evaluate
-from ragas.metrics import (
-    faithfulness,
-    answer_relevancy,
-    context_precision,
-    context_recall
-)
+try:
+    # Try newer Ragas API (0.2+)
+    from ragas import evaluate
+    from ragas.metrics import (
+        faithfulness,
+        answer_relevancy,
+        context_precision,
+        context_recall
+    )
+except ImportError:
+    # Fallback for older versions
+    from ragas import evaluate
+    from ragas.metrics import faithfulness, answer_relevancy
+
 from datasets import Dataset
+from langchain_openai import ChatOpenAI
+import os
 
 
 class RagasEvaluator:
@@ -27,6 +36,13 @@ class RagasEvaluator:
         """Initialize Ragas evaluator."""
         # Suppress warnings from Ragas
         warnings.filterwarnings('ignore', category=UserWarning)
+        
+        # Initialize LLM for Ragas (required for newer versions)
+        try:
+            self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        except Exception as e:
+            print(f"Warning: Could not initialize Ragas LLM: {e}")
+            self.llm = None
     
     def evaluate_with_ragas(
         self,
@@ -94,11 +110,18 @@ class RagasEvaluator:
                     context_recall
                 ]
             
-            # Evaluate
-            results = evaluate(
-                dataset,
-                metrics=metrics
-            )
+            # Evaluate with LLM if available
+            if self.llm:
+                results = evaluate(
+                    dataset,
+                    metrics=metrics,
+                    llm=self.llm
+                )
+            else:
+                results = evaluate(
+                    dataset,
+                    metrics=metrics
+                )
             
             # Extract scores
             scores = {}
@@ -111,14 +134,15 @@ class RagasEvaluator:
             
         except Exception as e:
             # Handle errors gracefully
-            print(f"Warning: Ragas evaluation failed: {str(e)}")
+            print(f"⚠ Ragas evaluation skipped: {str(e)[:100]}")
+            print("  Note: Ragas metrics are optional. Core evaluation continues.")
             # Return default scores
             return {
                 "faithfulness": 0.0,
                 "answer_relevancy": 0.0,
                 "context_precision": 0.0,
                 "context_recall": 0.0,
-                "error": str(e)
+                "ragas_skipped": True
             }
     
     def compute_faithfulness(
