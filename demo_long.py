@@ -19,11 +19,18 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, Any, List
+from datetime import datetime
+import io
+
+# Fix Windows console encoding for emojis
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 from src.config import load_config_from_yaml, EvalConfig
 from src.evaluator import Evaluator
 from src.dashboard import generate_dashboard_with_charts
-from src.ab_testing import run_ab_test, generate_ab_comparison_report
+from src.ab_testing import run_ab_test, generate_comparison_dashboard
 from src.reports import save_all_reports
 
 
@@ -58,23 +65,33 @@ def print_metrics_table(metrics: Dict[str, Any], title: str = "Metrics"):
     safety = metrics.get('avg_safety_score', 0.0)
     quality = metrics.get('avg_quality_score', 0.0)
     
-    print(f"{'Clinical Accuracy (Top-3)':<30} {accuracy:.1%:<20} {'✅' if accuracy >= 0.75 else '❌'}")
-    print(f"{'Avg Safety Score':<30} {f'{safety:.2f}/5.0':<20} {'✅' if safety >= 4.0 else '❌'}")
-    print(f"{'Avg Quality Score':<30} {f'{quality:.2f}/5.0':<20} {'-'}")
+    accuracy_str = f"{accuracy:.1%}"
+    safety_str = f"{safety:.2f}/5.0"
+    quality_str = f"{quality:.2f}/5.0"
+    
+    print(f"{'Clinical Accuracy (Top-3)':<30} {accuracy_str:<20} {'✅' if accuracy >= 0.75 else '❌'}")
+    print(f"{'Avg Safety Score':<30} {safety_str:<20} {'✅' if safety >= 4.0 else '❌'}")
+    print(f"{'Avg Quality Score':<30} {quality_str:<20} {'-'}")
     
     # Ragas metrics
     faithfulness = metrics.get('faithfulness', 0.0)
     relevancy = metrics.get('answer_relevancy', 0.0)
     
-    print(f"{'Faithfulness':<30} {faithfulness:.3f:<20} {'✅' if faithfulness >= 0.80 else '❌'}")
-    print(f"{'Answer Relevancy':<30} {relevancy:.3f:<20} {'-'}")
+    faithfulness_str = f"{faithfulness:.3f}"
+    relevancy_str = f"{relevancy:.3f}"
+    
+    print(f"{'Faithfulness':<30} {faithfulness_str:<20} {'✅' if faithfulness >= 0.80 else '❌'}")
+    print(f"{'Answer Relevancy':<30} {relevancy_str:<20} {'-'}")
     
     # Performance metrics
     cost = metrics.get('cost_per_query', 0.0)
     p95 = metrics.get('p95', 0.0)
     
-    print(f"{'Cost per Query':<30} {f'${cost:.4f}':<20} {'✅' if cost <= 0.10 else '❌'}")
-    print(f"{'P95 Latency':<30} {f'{p95:.0f}ms':<20} {'✅' if p95 <= 3000 else '❌'}")
+    cost_str = f"${cost:.4f}"
+    p95_str = f"{p95:.0f}ms"
+    
+    print(f"{'Cost per Query':<30} {cost_str:<20} {'✅' if cost <= 0.10 else '❌'}")
+    print(f"{'P95 Latency':<30} {p95_str:<20} {'✅' if p95 <= 3000 else '❌'}")
     
     print(f"{'─' * 70}\n")
 
@@ -225,75 +242,112 @@ def run_comprehensive_demo():
                     "Anthropic Claude-3.5-Sonnet"
                 )
                 
-                # Print comparison
-                print_section("A/B Test Comparison")
-                
-                print("📊 Side-by-Side Comparison:")
-                print(f"{'─' * 70}")
-                print(f"{'Metric':<30} {'OpenAI':<20} {'Anthropic':<20}")
-                print(f"{'─' * 70}")
-                
-                # Compare metrics
-                metrics_a = results_openai.metrics
-                metrics_b = results_anthropic.metrics
-                
-                def compare_metric(name: str, key: str, format_str: str = "{:.3f}"):
-                    val_a = metrics_a.get(key, 0.0)
-                    val_b = metrics_b.get(key, 0.0)
-                    winner = "🏆" if val_a > val_b else ("🏆" if val_b > val_a else "=")
-                    print(f"{name:<30} {format_str.format(val_a):<20} {format_str.format(val_b) + ' ' + winner:<20}")
-                
-                compare_metric("Clinical Accuracy", "clinical_accuracy", "{:.1%}")
-                compare_metric("Safety Score", "avg_safety_score", "{:.2f}")
-                compare_metric("Quality Score", "avg_quality_score", "{:.2f}")
-                compare_metric("Faithfulness", "faithfulness", "{:.3f}")
-                compare_metric("Answer Relevancy", "answer_relevancy", "{:.3f}")
-                compare_metric("Cost per Query", "cost_per_query", "${:.4f}")
-                compare_metric("P95 Latency", "p95", "{:.0f}ms")
-                
-                print(f"{'─' * 70}\n")
-                
-                # Determine winner
-                score_a = (
-                    metrics_a.get('clinical_accuracy', 0.0) * 0.3 +
-                    metrics_a.get('avg_safety_score', 0.0) / 5.0 * 0.3 +
-                    metrics_a.get('faithfulness', 0.0) * 0.2 +
-                    (1.0 - min(metrics_a.get('cost_per_query', 0.0) / 0.10, 1.0)) * 0.1 +
-                    (1.0 - min(metrics_a.get('p95', 0.0) / 3000.0, 1.0)) * 0.1
-                )
-                
-                score_b = (
-                    metrics_b.get('clinical_accuracy', 0.0) * 0.3 +
-                    metrics_b.get('avg_safety_score', 0.0) / 5.0 * 0.3 +
-                    metrics_b.get('faithfulness', 0.0) * 0.2 +
-                    (1.0 - min(metrics_b.get('cost_per_query', 0.0) / 0.10, 1.0)) * 0.1 +
-                    (1.0 - min(metrics_b.get('p95', 0.0) / 3000.0, 1.0)) * 0.1
-                )
-                
-                if score_a > score_b:
-                    winner = "OpenAI GPT-4o"
-                    winner_score = score_a
-                elif score_b > score_a:
-                    winner = "Anthropic Claude-3.5-Sonnet"
-                    winner_score = score_b
+                # Check if Anthropic evaluation was successful
+                if results_anthropic.metrics.get('successful_cases', 0) == 0:
+                    print("\n⚠️  Anthropic evaluation had no successful cases")
+                    print("   Skipping A/B comparison")
+                    print()
                 else:
-                    winner = "Tie"
-                    winner_score = score_a
-                
-                print(f"🏆 Overall Winner: {winner} (Score: {winner_score:.3f})")
-                print()
-                
-                # Generate comparison dashboard
-                print("📊 Generating A/B comparison dashboard...")
-                ab_dashboard_path = output_dir / "ab_comparison_dashboard.html"
-                try:
-                    # Note: This would require implementing generate_ab_comparison_report
-                    # For now, we'll just note it
-                    print(f"   (A/B dashboard generation would go here)")
+                    # Print comparison
+                    print_section("A/B Test Comparison")
+                    
+                    print("📊 Side-by-Side Comparison:")
+                    print(f"{'─' * 70}")
+                    print(f"{'Metric':<30} {'OpenAI':<20} {'Anthropic':<20}")
+                    print(f"{'─' * 70}")
+                    
+                    # Compare metrics
+                    metrics_a = results_openai.metrics
+                    metrics_b = results_anthropic.metrics
+                    
+                    def compare_metric(name: str, key: str, format_str: str = "{:.3f}"):
+                        val_a = metrics_a.get(key, 0.0)
+                        val_b = metrics_b.get(key, 0.0)
+                        winner = "🏆" if val_a > val_b else ("🏆" if val_b > val_a else "=")
+                        print(f"{name:<30} {format_str.format(val_a):<20} {format_str.format(val_b) + ' ' + winner:<20}")
+                    
+                    compare_metric("Clinical Accuracy", "clinical_accuracy", "{:.1%}")
+                    compare_metric("Safety Score", "avg_safety_score", "{:.2f}")
+                    compare_metric("Quality Score", "avg_quality_score", "{:.2f}")
+                    compare_metric("Faithfulness", "faithfulness", "{:.3f}")
+                    compare_metric("Answer Relevancy", "answer_relevancy", "{:.3f}")
+                    compare_metric("Cost per Query", "cost_per_query", "${:.4f}")
+                    compare_metric("P95 Latency", "p95", "{:.0f}ms")
+                    
+                    print(f"{'─' * 70}\n")
+                    
+                    # Determine winner
+                    score_a = (
+                        metrics_a.get('clinical_accuracy', 0.0) * 0.3 +
+                        metrics_a.get('avg_safety_score', 0.0) / 5.0 * 0.3 +
+                        metrics_a.get('faithfulness', 0.0) * 0.2 +
+                        (1.0 - min(metrics_a.get('cost_per_query', 0.0) / 0.10, 1.0)) * 0.1 +
+                        (1.0 - min(metrics_a.get('p95', 0.0) / 3000.0, 1.0)) * 0.1
+                    )
+                    
+                    score_b = (
+                        metrics_b.get('clinical_accuracy', 0.0) * 0.3 +
+                        metrics_b.get('avg_safety_score', 0.0) / 5.0 * 0.3 +
+                        metrics_b.get('faithfulness', 0.0) * 0.2 +
+                        (1.0 - min(metrics_b.get('cost_per_query', 0.0) / 0.10, 1.0)) * 0.1 +
+                        (1.0 - min(metrics_b.get('p95', 0.0) / 3000.0, 1.0)) * 0.1
+                    )
+                    
+                    if score_a > score_b:
+                        winner = "OpenAI GPT-4o"
+                        winner_score = score_a
+                    elif score_b > score_a:
+                        winner = "Anthropic Claude-3.5-Sonnet"
+                        winner_score = score_b
+                    else:
+                        winner = "Tie"
+                        winner_score = score_a
+                    
+                    print(f"🏆 Overall Winner: {winner} (Score: {winner_score:.3f})")
                     print()
-                except Exception as e:
-                    print(f"⚠️  A/B dashboard generation failed: {str(e)}")
-                    print()
+                    
+                    # Generate comparison dashboard
+                    print("📊 Generating A/B comparison dashboard...")
+                    ab_dashboard_path = output_dir / "ab_comparison_dashboard.html"
+                    try:
+                        # Create a simple A/B test results structure
+                        ab_test_results = {
+                            "timestamp": datetime.now().isoformat(),
+                            "config_a": {
+                                "model": config.model.model_dump(),
+                                "judge_model": config.judge_model
+                            },
+                            "config_b": {
+                                "model": config_anthropic.model.model_dump(),
+                                "judge_model": config_anthropic.judge_model
+                            },
+                            "results_a": results_openai.to_dict(),
+                            "results_b": results_anthropic.to_dict(),
+                            "comparison": {
+                                "metrics": {},
+                                "winner": winner
+                            }
+                        }
+                        
+                        # Add metric comparisons
+                        for metric_name in ["clinical_accuracy", "avg_safety_score", "avg_quality_score", 
+                                           "faithfulness", "answer_relevancy", "cost_per_query", "p95"]:
+                            val_a = metrics_a.get(metric_name, 0.0)
+                            val_b = metrics_b.get(metric_name, 0.0)
+                            ab_test_results["comparison"]["metrics"][metric_name] = {
+                                "config_a": val_a,
+                                "config_b": val_b,
+                                "difference": val_b - val_a,
+                                "percent_change": ((val_b - val_a) / val_a * 100) if val_a != 0 else 0,
+                                "winner": "B" if val_b > val_a else "A" if val_a > val_b else "Tie"
+                            }
+                        
+                        generate_comparison_dashboard(ab_test_results, str(ab_dashboard_path))
+                        print(f"✅ A/B comparison dashboard saved: {ab_dashboard_path}")
+                        print()
+                    except Exception as e:
+                        print(f"⚠️  A/B dashboard generation failed: {str(e)}")
+                        print()
         
         except Exception as e:
             print(f"⚠️  A/B testing failed: {str(e)}")
@@ -336,7 +390,9 @@ def run_comprehensive_demo():
     for specialty, stats in sorted(specialty_stats.items()):
         accuracy = stats["correct"] / stats["total"] if stats["total"] > 0 else 0.0
         avg_safety = sum(stats["safety_scores"]) / len(stats["safety_scores"]) if stats["safety_scores"] else 0.0
-        print(f"{specialty:<20} {stats['total']:<10} {accuracy:.1%:<15} {avg_safety:.2f}/5.0")
+        accuracy_str = f"{accuracy:.1%}"
+        safety_str = f"{avg_safety:.2f}/5.0"
+        print(f"{specialty:<20} {stats['total']:<10} {accuracy_str:<15} {safety_str}")
     print()
     
     # ========================================================================

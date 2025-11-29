@@ -14,6 +14,12 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, Any
+import io
+
+# Fix Windows console encoding for emojis
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 from src.config import load_config_from_yaml, EvalConfig
 from src.evaluator import Evaluator
