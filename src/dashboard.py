@@ -325,18 +325,29 @@ def _get_css_styles() -> str:
             background: #f9fafb;
             border: 2px dashed #d1d5db;
             border-radius: 10px;
-            padding: 40px;
+            padding: 20px;
+            min-height: 400px;
+            position: relative;
+        }
+        
+        .chart-placeholder h3 {
+            margin: 0 0 15px 0;
             text-align: center;
-            min-height: 300px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
         }
 
         .placeholder-text {
             color: #9ca3af;
             font-style: italic;
+            text-align: center;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        /* When chart is rendered, hide placeholder text */
+        .chart-placeholder:has(.js-plotly-plot) .placeholder-text {
+            display: none;
         }
 
         /* Failure Cases Table */
@@ -1112,7 +1123,21 @@ def _generate_chart_scripts(charts: Dict[str, str]) -> str:
     var {chart_id.replace("-", "_")}_data = {chart_json};
     var {chart_id.replace("-", "_")}_div = document.getElementById("{chart_id}");
     if ({chart_id.replace("-", "_")}_div) {{
-        Plotly.newPlot("{chart_id}", {chart_id.replace("-", "_")}_data.data, {chart_id.replace("-", "_")}_data.layout, {{responsive: true}});
+        // Clear placeholder content except title
+        var title = {chart_id.replace("-", "_")}_div.querySelector('h3');
+        {chart_id.replace("-", "_")}_div.innerHTML = '';
+        if (title) {{
+            {chart_id.replace("-", "_")}_div.appendChild(title);
+        }}
+        
+        // Render chart with proper configuration
+        var config = {{
+            responsive: true,
+            displayModeBar: true,
+            displaylogo: false
+        }};
+        
+        Plotly.newPlot("{chart_id}", {chart_id.replace("-", "_")}_data.data, {chart_id.replace("-", "_")}_data.layout, config);
     }}
 ''')
     

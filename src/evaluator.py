@@ -317,11 +317,17 @@ class Evaluator:
         for result in successful_results:
             # Clinical accuracy data
             diagnosis = result["diagnosis"]
+            primary = diagnosis.get("primary_diagnosis", "")
             differential = diagnosis.get("differential_diagnoses", [])
-            if not differential:
-                # Use primary diagnosis if no differential
-                differential = [diagnosis.get("primary_diagnosis", "")]
-            predictions.append(differential)
+            
+            # Combine primary + differential for top-k matching
+            # The primary diagnosis should be considered first in the list
+            if primary:
+                full_differential = [primary] + differential
+            else:
+                full_differential = differential if differential else []
+            
+            predictions.append(full_differential)
             ground_truths.append(result["ground_truth"]["expert_diagnosis"])
             
             # Safety and quality scores
